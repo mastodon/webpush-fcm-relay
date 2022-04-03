@@ -1,6 +1,8 @@
 webpush-fcm-relay
 =================
 
+[![Go](https://github.com/mastodon/webpush-fcm-relay/actions/workflows/go.yml/badge.svg)](https://github.com/mastodon/webpush-fcm-relay/actions/workflows/go.yml)
+
 Relay encrypted WebPush notifications to Firebase Cloud Messaging.
 
 ## Usage
