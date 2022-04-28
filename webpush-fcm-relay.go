@@ -17,14 +17,19 @@ import (
 )
 
 var (
-	client *fcm.Client
-	configListenAddr string
-	configServerKey string
+	client             *fcm.Client
+	configListenAddr   string
+	configServerKey    string
+	configMaxQueueSize int
+	configMaxWorkers   int
+	messageChan        chan *fcm.Message
 )
 
 func main() {
 	flag.StringVar(&configListenAddr, "bind", "127.0.0.1:42069", "Bind address")
 	flag.StringVar(&configServerKey, "server-key", "", "Firebase server key")
+	flag.IntVar(&configMaxQueueSize, "max-queue-size", 1024, "Maximum number of messages to queue")
+	flag.IntVar(&configMaxWorkers, "max-workers", 4, "Maximum number of workers")
 	flag.Parse()
 
 	if configServerKey == "" {
@@ -37,6 +42,12 @@ func main() {
 	}
 
 	client = _client
+
+	// create workers
+	messageChan = make(chan *fcm.Message, configMaxQueueSize)
+	for i := 1; i <= configMaxWorkers; i++ {
+		go worker(i)
+	}
 
 	http.HandleFunc("/relay-to/", handler)
 
@@ -51,7 +62,7 @@ func httpError(writer http.ResponseWriter, code int, message string) {
 }
 
 func nextRequestID() string {
-	return fmt.Sprintf("%s", uuid.NewV4())
+	return uuid.NewV4().String()
 }
 
 func handler(writer http.ResponseWriter, request *http.Request) {
@@ -142,21 +153,27 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 		message.Priority = "high"
 	}
 
-	_, err := client.Send(message)
-	if err != nil {
-		http.Error(writer, "Push error", http.StatusInternalServerError)
-		requestLog.Error(fmt.Sprintf("Push error: %s", err))
-		return
-	}
+	messageChan <- message
 
 	writer.WriteHeader(201)
 
 	requestLog.WithFields(log.Fields{
-		"to": message.To,
-		"priority": message.Priority,
-		"ttl": message.TimeToLive,
+		"to":           message.To,
+		"priority":     message.Priority,
+		"ttl":          message.TimeToLive,
 		"collapse-key": message.CollapseKey,
-	}).Info("Push success")
+	}).Info("Queue success")
+}
+
+func worker(wid int) {
+	log.Info(fmt.Sprintf("Starting worker %d", wid))
+	for msg := range messageChan {
+		_, err := client.Send(msg)
+		if err != nil {
+			log.Error(fmt.Sprintf("error sending ftm message: %s", err.Error()))
+		}
+	}
+	log.Info(fmt.Sprintf("Worker %d stopped", wid))
 }
 
 func encodedValue(header http.Header, name, key string) (string, error) {
