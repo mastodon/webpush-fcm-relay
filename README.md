@@ -13,6 +13,10 @@ Usage of ./webpush-fcm-relay:
       Bind address (default "127.0.0.1:42069")
   -server-key string
       Firebase server key
+  -max-queue-size int (default 1024)
+      The size of the internal queue
+  -max-workers int (default 4)
+      The number of workers sending requests to fcm
 ```
 
 ## API
