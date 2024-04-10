@@ -1,4 +1,4 @@
-FROM golang:1.19-buster as build-env
+FROM golang:1.22-bookworm as build-env
 WORKDIR /go/src/webpush-fcm-relay
 
 COPY go.mod ./
