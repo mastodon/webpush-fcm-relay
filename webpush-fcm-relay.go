@@ -4,16 +4,19 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
-	"errors"
-	"fmt"
 	"flag"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/appleboy/go-fcm"
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
+	log "github.com/sirupsen/logrus"
+
+	httptrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/net/http"
+	dd_logrus "gopkg.in/DataDog/dd-trace-go.v1/contrib/sirupsen/logrus"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 var (
@@ -26,6 +29,15 @@ var (
 )
 
 func main() {
+	tracer.Start(
+		tracer.WithService("webpush-fcm-relay"),
+	)
+	defer tracer.Stop()
+
+	mux := httptrace.NewServeMux()
+
+	log.AddHook(&dd_logrus.DDContextLogHook{})
+
 	flag.StringVar(&configListenAddr, "bind", "127.0.0.1:42069", "Bind address")
 	flag.StringVar(&configServerKey, "server-key", "", "Firebase server key")
 	flag.IntVar(&configMaxQueueSize, "max-queue-size", 1024, "Maximum number of messages to queue")
@@ -49,16 +61,10 @@ func main() {
 		go worker(i)
 	}
 
-	http.HandleFunc("/relay-to/", handler)
+	mux.HandleFunc("/relay-to/", handler)
 
 	log.Info(fmt.Sprintf("Starting on %s...", configListenAddr))
-	log.Fatal(http.ListenAndServe(configListenAddr, nil))
-}
-
-func httpError(writer http.ResponseWriter, code int, message string) {
-	writer.WriteHeader(code)
-	fmt.Fprintln(writer, message)
-	log.Println(message)
+	log.Fatal(http.ListenAndServe(configListenAddr, mux))
 }
 
 func nextRequestID() string {
@@ -66,6 +72,9 @@ func nextRequestID() string {
 }
 
 func handler(writer http.ResponseWriter, request *http.Request) {
+	span := tracer.StartSpan("web.request", tracer.ResourceName(request.RequestURI))
+	defer span.Finish()
+
 	requestID := nextRequestID()
 	requestLog := log.WithFields(log.Fields{"request-id": requestID})
 
@@ -180,7 +189,7 @@ func encodedValue(header http.Header, name, key string) (string, error) {
 	keyValues := parseKeyValues(header.Get(name))
 	value, exists := keyValues[key]
 	if !exists {
-		return "", errors.New(fmt.Sprintf("Value %s not found in header %s", key, name))
+		return "", fmt.Errorf("value %s not found in header %s", key, name)
 	}
 
 	bytes, err := base64.RawURLEncoding.DecodeString(value)
