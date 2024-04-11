@@ -8,7 +8,7 @@ RUN go mod download
 COPY *.go ./
 RUN go build -o webpush-fcm-relay
 
-FROM gcr.io/distroless/base
+FROM gcr.io/distroless/base-debian12
 COPY --from=build-env /go/src/webpush-fcm-relay/webpush-fcm-relay /
 
 ARG GIT_REPOSITORY_URL
