@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"flag"
@@ -9,7 +10,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"firebase.google.com/go/v4/messaging"
 	"github.com/appleboy/go-fcm"
 	uuid "github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
@@ -20,12 +23,13 @@ import (
 )
 
 var (
-	client             *fcm.Client
-	configListenAddr   string
-	configServerKey    string
-	configMaxQueueSize int
-	configMaxWorkers   int
-	messageChan        chan *fcm.Message
+	client                    *fcm.Client
+	configListenAddr          string
+	configCredentialsFilePath string
+	configMaxQueueSize        int
+	configMaxWorkers          int
+	messageChan               chan *messaging.Message
+	ctx                       context.Context
 )
 
 func main() {
@@ -39,16 +43,17 @@ func main() {
 	log.AddHook(&dd_logrus.DDContextLogHook{})
 
 	flag.StringVar(&configListenAddr, "bind", "127.0.0.1:42069", "Bind address")
-	flag.StringVar(&configServerKey, "server-key", "", "Firebase server key")
+	flag.StringVar(&configCredentialsFilePath, "credentials-file-path", "", "Path to the Firebase credentials file")
 	flag.IntVar(&configMaxQueueSize, "max-queue-size", 1024, "Maximum number of messages to queue")
 	flag.IntVar(&configMaxWorkers, "max-workers", 4, "Maximum number of workers")
 	flag.Parse()
 
-	if configServerKey == "" {
+	if configCredentialsFilePath == "" {
 		log.Fatal("Firebase server key not provided")
 	}
 
-	_client, err := fcm.NewClient(configServerKey)
+	ctx := context.Background()
+	_client, err := fcm.NewClient(ctx, fcm.WithCredentialsFile(configCredentialsFilePath))
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Error setting up FCM client: %s", err))
 	}
@@ -56,7 +61,6 @@ func main() {
 	client = _client
 
 	// create workers
-	messageChan = make(chan *fcm.Message, configMaxQueueSize)
 	for i := 1; i <= configMaxWorkers; i++ {
 		go worker(i)
 	}
@@ -105,15 +109,23 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	buffer.ReadFrom(request.Body)
 	encodedString := encode85(buffer.Bytes())
 
-	message := &fcm.Message{
-		To: deviceToken,
-		Data: map[string]interface{}{
-			"p": encodedString,
+	message := &messaging.Message{
+		Token: deviceToken,
+		Android: &messaging.AndroidConfig{
+			Data: map[string]string{
+				"p": encodedString,
+			},
+			Notification: &messaging.AndroidNotification{
+				Title: "🎺",
+			},
 		},
-		MutableContent:   true,
-		ContentAvailable: true,
-		Notification: &fcm.Notification{
-			Title: "🎺",
+		APNS: &messaging.APNSConfig{
+			Payload: &messaging.APNSPayload{
+				Aps: &messaging.Aps{
+					ContentAvailable: true,
+					MutableContent:   true,
+				},
+			},
 		},
 	}
 
@@ -146,20 +158,20 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 
 	if seconds := request.Header.Get("TTL"); seconds != "" {
 		if ttl, err := strconv.Atoi(seconds); err == nil {
-			timeToLive := uint(ttl)
-			message.TimeToLive = &timeToLive
+			timeToLive := time.Duration(ttl) * time.Second
+			message.Android.TTL = &timeToLive
 		}
 	}
 
 	if topic := request.Header.Get("Topic"); topic != "" {
-		message.CollapseKey = topic
+		message.Android.CollapseKey = topic
 	}
 
 	switch request.Header.Get("Urgency") {
 	case "very-low", "low":
-		message.Priority = "normal"
+		message.Android.Priority = "normal"
 	default:
-		message.Priority = "high"
+		message.Android.Priority = "high"
 	}
 
 	messageChan <- message
@@ -167,17 +179,17 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	writer.WriteHeader(201)
 
 	requestLog.WithFields(log.Fields{
-		"to":           message.To,
-		"priority":     message.Priority,
-		"ttl":          message.TimeToLive,
-		"collapse-key": message.CollapseKey,
+		"to":           message.Token,
+		"priority":     message.Android.Priority,
+		"ttl":          message.Android.TTL,
+		"collapse-key": message.Android.CollapseKey,
 	}).Info("Queue success")
 }
 
 func worker(wid int) {
 	log.Info(fmt.Sprintf("Starting worker %d", wid))
 	for msg := range messageChan {
-		_, err := client.Send(msg)
+		_, err := client.Send(ctx, msg)
 		if err != nil {
 			log.Error(fmt.Sprintf("error sending ftm message: %s", err.Error()))
 		}
