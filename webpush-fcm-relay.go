@@ -52,13 +52,12 @@ func main() {
 		log.Fatal("Firebase server key not provided")
 	}
 
-	ctx := context.Background()
-	_client, err := fcm.NewClient(ctx, fcm.WithCredentialsFile(configCredentialsFilePath))
+	var err error
+	ctx = context.Background()
+	client, err = fcm.NewClient(ctx, fcm.WithCredentialsFile(configCredentialsFilePath))
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Error setting up FCM client: %s", err))
 	}
-
-	client = _client
 
 	// create workers
 	for i := 1; i <= configMaxWorkers; i++ {
@@ -111,13 +110,11 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 
 	message := &messaging.Message{
 		Token: deviceToken,
-		Android: &messaging.AndroidConfig{
-			Data: map[string]string{
-				"p": encodedString,
-			},
-			Notification: &messaging.AndroidNotification{
-				Title: "🎺",
-			},
+		Data: map[string]string{
+			"p": encodedString,
+		},
+		Notification: &messaging.Notification{
+			Title: "🎺",
 		},
 		APNS: &messaging.APNSConfig{
 			Payload: &messaging.APNSPayload{
