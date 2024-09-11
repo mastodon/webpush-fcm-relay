@@ -196,7 +196,7 @@ func worker(wid int) {
 		if resp.FailureCount > 0 {
 			for _, resp := range resp.Responses {
 				if !resp.Success {
-					log.Error(fmt.Sprintf("error sending ftm message %s: %s", resp.MessageID, resp.Error))
+					log.Warn(fmt.Sprintf("message rejected (%s): %s", resp.MessageID, resp.Error))
 				}
 			}
 		}
