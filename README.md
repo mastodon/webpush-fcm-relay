@@ -11,8 +11,8 @@ Relay encrypted WebPush notifications to Firebase Cloud Messaging.
 Usage of ./webpush-fcm-relay:
   -bind string
       Bind address (default "127.0.0.1:42069")
-  -server-key string
-      Firebase server key
+  -credentials-file-path string
+        Path to the Firebase credentials file
   -max-queue-size int (default 1024)
       The size of the internal queue
   -max-workers int (default 4)
