@@ -190,13 +190,13 @@ func worker(wid int) {
 	for msg := range messageChan {
 		resp, err := client.Send(ctx, msg)
 		if err != nil {
-			log.Error(fmt.Sprintf("error sending ftm message: %s", err.Error()))
+			log.Error(fmt.Sprintf("error sending fcm message: %s", err.Error()))
 		}
 
 		if resp.FailureCount > 0 {
 			for _, resp := range resp.Responses {
 				if !resp.Success {
-					log.Error(fmt.Sprintf("error sending ftm message %s: %s", resp.MessageID, resp.Error))
+					log.Warn(fmt.Sprintf("message rejected (%s): %s", resp.MessageID, resp.Error))
 				}
 			}
 		}
