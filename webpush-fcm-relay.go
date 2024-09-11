@@ -189,9 +189,17 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 func worker(wid int) {
 	log.Info(fmt.Sprintf("Starting worker %d", wid))
 	for msg := range messageChan {
-		_, err := client.Send(ctx, msg)
+		resp, err := client.Send(ctx, msg)
 		if err != nil {
 			log.Error(fmt.Sprintf("error sending ftm message: %s", err.Error()))
+		}
+
+		if resp.FailureCount > 0 {
+			for _, resp := range resp.Responses {
+				if !resp.Success {
+					log.Error(fmt.Sprintf("error sending ftm message %s: %s", resp.MessageID, resp.Error))
+				}
+			}
 		}
 	}
 	log.Info(fmt.Sprintf("Worker %d stopped", wid))
