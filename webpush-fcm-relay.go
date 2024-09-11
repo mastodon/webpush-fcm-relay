@@ -60,6 +60,7 @@ func main() {
 	}
 
 	// create workers
+	messageChan = make(chan *messaging.Message, configMaxQueueSize)
 	for i := 1; i <= configMaxWorkers; i++ {
 		go worker(i)
 	}
