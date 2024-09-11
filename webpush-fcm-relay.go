@@ -52,15 +52,15 @@ func main() {
 		log.Fatal("Firebase server key not provided")
 	}
 
-	ctx := context.Background()
-	_client, err := fcm.NewClient(ctx, fcm.WithCredentialsFile(configCredentialsFilePath))
+	var err error
+	ctx = context.Background()
+	client, err = fcm.NewClient(ctx, fcm.WithCredentialsFile(configCredentialsFilePath))
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Error setting up FCM client: %s", err))
 	}
 
-	client = _client
-
 	// create workers
+	messageChan = make(chan *messaging.Message, configMaxQueueSize)
 	for i := 1; i <= configMaxWorkers; i++ {
 		go worker(i)
 	}
@@ -110,14 +110,13 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	encodedString := encode85(buffer.Bytes())
 
 	message := &messaging.Message{
-		Token: deviceToken,
-		Android: &messaging.AndroidConfig{
-			Data: map[string]string{
-				"p": encodedString,
-			},
-			Notification: &messaging.AndroidNotification{
-				Title: "🎺",
-			},
+		Token:   deviceToken,
+		Android: &messaging.AndroidConfig{},
+		Data: map[string]string{
+			"p": encodedString,
+		},
+		Notification: &messaging.Notification{
+			Title: "🎺",
 		},
 		APNS: &messaging.APNSConfig{
 			Payload: &messaging.APNSPayload{
@@ -130,13 +129,13 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	if len(components) > 4 {
-		message.Android.Data["x"] = strings.Join(components[4:], "/")
+		message.Data["x"] = strings.Join(components[4:], "/")
 	}
 
 	switch request.Header.Get("Content-Encoding") {
 	case "aesgcm":
 		if publicKey, err := encodedValue(request.Header, "Crypto-Key", "dh"); err == nil {
-			message.Android.Data["k"] = publicKey
+			message.Data["k"] = publicKey
 		} else {
 			http.Error(writer, "Error retrieving public key", http.StatusBadRequest)
 			requestLog.Error(fmt.Sprintf("Error retrieving public key: %s", err))
@@ -144,7 +143,7 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 		}
 
 		if salt, err := encodedValue(request.Header, "Encryption", "salt"); err == nil {
-			message.Android.Data["s"] = salt
+			message.Data["s"] = salt
 		} else {
 			http.Error(writer, "Error retrieving salt", http.StatusBadRequest)
 			requestLog.Error(fmt.Sprintf("Error retrieving salt: %s", err))
