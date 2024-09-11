@@ -130,13 +130,13 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	if len(components) > 4 {
-		message.Data["x"] = strings.Join(components[4:], "/")
+		message.Android.Data["x"] = strings.Join(components[4:], "/")
 	}
 
 	switch request.Header.Get("Content-Encoding") {
 	case "aesgcm":
 		if publicKey, err := encodedValue(request.Header, "Crypto-Key", "dh"); err == nil {
-			message.Data["k"] = publicKey
+			message.Android.Data["k"] = publicKey
 		} else {
 			http.Error(writer, "Error retrieving public key", http.StatusBadRequest)
 			requestLog.Error(fmt.Sprintf("Error retrieving public key: %s", err))
@@ -144,7 +144,7 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 		}
 
 		if salt, err := encodedValue(request.Header, "Encryption", "salt"); err == nil {
-			message.Data["s"] = salt
+			message.Android.Data["s"] = salt
 		} else {
 			http.Error(writer, "Error retrieving salt", http.StatusBadRequest)
 			requestLog.Error(fmt.Sprintf("Error retrieving salt: %s", err))
