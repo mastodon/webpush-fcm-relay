@@ -33,9 +33,7 @@ var (
 )
 
 func main() {
-	tracer.Start(
-		tracer.WithService("webpush-fcm-relay"),
-	)
+	tracer.Start()
 	defer tracer.Stop()
 
 	mux := httptrace.NewServeMux()
@@ -76,11 +74,11 @@ func nextRequestID() string {
 }
 
 func handler(writer http.ResponseWriter, request *http.Request) {
-	span := tracer.StartSpan("web.request", tracer.ResourceName(request.RequestURI))
+	span, sctx := tracer.StartSpanFromContext(ctx, "web.request", tracer.ResourceName(request.RequestURI))
 	defer span.Finish()
 
 	requestID := nextRequestID()
-	requestLog := log.WithFields(log.Fields{"request-id": requestID})
+	requestLog := log.WithFields(log.Fields{"request-id": requestID}).WithContext(sctx)
 
 	writer.Header().Set("X-Request-Id", requestID)
 
