@@ -147,6 +147,8 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 			requestLog.Error(fmt.Sprintf("Error retrieving salt: %s", err))
 			return
 		}
+	case "aes128gcm":
+		message.Data["rfc"] = "1"
 	default:
 		http.Error(writer, "Unsupported content encoding", http.StatusUnsupportedMediaType)
 		requestLog.Error(fmt.Sprintf("Unsupported content encoding: %s", request.Header.Get("Content-Encoding")))
