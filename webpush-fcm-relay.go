@@ -22,13 +22,20 @@ import (
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
+type Message struct {
+	unsubscribeUrl string
+	fcmMessage     *messaging.Message
+	requestLog     *log.Entry // For logging with datadog context
+	ctx            context.Context
+}
+
 var (
 	client                    *fcm.Client
 	configListenAddr          string
 	configCredentialsFilePath string
 	configMaxQueueSize        int
 	configMaxWorkers          int
-	messageChan               chan *messaging.Message
+	messageChan               chan Message
 	ctx                       context.Context
 )
 
@@ -58,7 +65,7 @@ func main() {
 	}
 
 	// create workers
-	messageChan = make(chan *messaging.Message, configMaxQueueSize)
+	messageChan = make(chan Message, configMaxQueueSize)
 	for i := 1; i <= configMaxWorkers; i++ {
 		go worker(i)
 	}
@@ -107,7 +114,7 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	buffer.ReadFrom(request.Body)
 	encodedString := encode85(buffer.Bytes())
 
-	message := &messaging.Message{
+	fcmMessage := &messaging.Message{
 		Token:   deviceToken,
 		Android: &messaging.AndroidConfig{},
 		Data: map[string]string{
@@ -127,13 +134,13 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	if len(components) > 4 {
-		message.Data["x"] = strings.Join(components[4:], "/")
+		fcmMessage.Data["x"] = strings.Join(components[4:], "/")
 	}
 
 	switch request.Header.Get("Content-Encoding") {
 	case "aesgcm":
 		if publicKey, err := encodedValue(request.Header, "Crypto-Key", "dh"); err == nil {
-			message.Data["k"] = publicKey
+			fcmMessage.Data["k"] = publicKey
 		} else {
 			http.Error(writer, "Error retrieving public key", http.StatusBadRequest)
 			requestLog.Error(fmt.Sprintf("Error retrieving public key: %s", err))
@@ -141,14 +148,14 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 		}
 
 		if salt, err := encodedValue(request.Header, "Encryption", "salt"); err == nil {
-			message.Data["s"] = salt
+			fcmMessage.Data["s"] = salt
 		} else {
 			http.Error(writer, "Error retrieving salt", http.StatusBadRequest)
 			requestLog.Error(fmt.Sprintf("Error retrieving salt: %s", err))
 			return
 		}
 	case "aes128gcm":
-		message.Data["rfc"] = "1"
+		fcmMessage.Data["rfc"] = "1"
 	default:
 		http.Error(writer, "Unsupported content encoding", http.StatusUnsupportedMediaType)
 		requestLog.Error(fmt.Sprintf("Unsupported content encoding: %s", request.Header.Get("Content-Encoding")))
@@ -158,19 +165,26 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	if seconds := request.Header.Get("TTL"); seconds != "" {
 		if ttl, err := strconv.Atoi(seconds); err == nil {
 			timeToLive := time.Duration(ttl) * time.Second
-			message.Android.TTL = &timeToLive
+			fcmMessage.Android.TTL = &timeToLive
 		}
 	}
 
 	if topic := request.Header.Get("Topic"); topic != "" {
-		message.Android.CollapseKey = topic
+		fcmMessage.Android.CollapseKey = topic
 	}
 
 	switch request.Header.Get("Urgency") {
 	case "very-low", "low":
-		message.Android.Priority = "normal"
+		fcmMessage.Android.Priority = "normal"
 	default:
-		message.Android.Priority = "high"
+		fcmMessage.Android.Priority = "high"
+	}
+
+	var message = Message{
+		unsubscribeUrl: request.Header.Get("Unsubscribe-URL"),
+		fcmMessage:     fcmMessage,
+		requestLog:     requestLog,
+		ctx:            sctx,
 	}
 
 	messageChan <- message
@@ -178,25 +192,69 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	writer.WriteHeader(201)
 
 	requestLog.WithFields(log.Fields{
-		"to":           message.Token,
-		"priority":     message.Android.Priority,
-		"ttl":          message.Android.TTL,
-		"collapse-key": message.Android.CollapseKey,
+		"to":           fcmMessage.Token,
+		"priority":     fcmMessage.Android.Priority,
+		"ttl":          fcmMessage.Android.TTL,
+		"collapse-key": fcmMessage.Android.CollapseKey,
 	}).Info("Queue success")
 }
 
+func unsubscribe(msg Message, httpClient *http.Client, sctx context.Context, requestLog *log.Entry) bool {
+	unsubscribeReq, reqErr := http.NewRequest("DELETE", msg.unsubscribeUrl, nil)
+	if reqErr != nil {
+		requestLog.WithFields(log.Fields{
+			"error":           reqErr.Error(),
+			"unsubscribe-url": msg.unsubscribeUrl,
+		}).Error("Failed to create HTTP request for unsubscribe")
+
+		return false
+	}
+
+	unsubscribeResp, respErr := httpClient.Do(unsubscribeReq)
+	if respErr != nil {
+		requestLog.WithFields(log.Fields{
+			"error":           respErr.Error(),
+			"unsubscribe-url": msg.unsubscribeUrl,
+		}).Error("Failed to send unsubscribe request")
+		return false
+	}
+
+	if unsubscribeResp.StatusCode == 200 {
+		return true
+	} else {
+		requestLog.WithFields(log.Fields{
+			"status-code":     unsubscribeResp.StatusCode,
+			"unsubscribe-url": msg.unsubscribeUrl,
+		}).Error(fmt.Sprintf("Failed to unsubscribe for notification (%v)", unsubscribeResp.StatusCode))
+
+		return false
+	}
+
+}
+
 func worker(wid int) {
+	var httpClient = &http.Client{}
+
 	log.Info(fmt.Sprintf("Starting worker %d", wid))
 	for msg := range messageChan {
-		resp, err := client.Send(ctx, msg)
+		requestLog := msg.requestLog.WithFields(log.Fields{"worker-id": wid})
+		resp, err := client.Send(ctx, msg.fcmMessage)
 		if err != nil {
-			log.Error(fmt.Sprintf("error sending fcm message: %s", err.Error()))
+			requestLog.Error(fmt.Sprintf("error sending fcm message: %s", err.Error()))
 		}
 
 		if resp.FailureCount > 0 {
 			for _, resp := range resp.Responses {
 				if !resp.Success {
-					log.Warn(fmt.Sprintf("message rejected (%s): %s", resp.MessageID, resp.Error))
+					unsubscribed := false
+
+					if msg.unsubscribeUrl != "" && resp.Error.Error() == "NotRegistered" {
+						unsubscribed = unsubscribe(msg, httpClient, msg.ctx, requestLog)
+					}
+
+					requestLog.
+						WithFields(log.Fields{"message-id": resp.MessageID, "unsubscribed": unsubscribed}).
+						Warn(fmt.Sprintf("message rejected: %s", resp.Error))
 				}
 			}
 		}
