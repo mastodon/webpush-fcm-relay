@@ -111,7 +111,13 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	buffer := new(bytes.Buffer)
-	buffer.ReadFrom(request.Body)
+	_, err := buffer.ReadFrom(request.Body)
+	if err != nil {
+		http.Error(writer, "Error reading request body", http.StatusInternalServerError)
+		requestLog.Error(fmt.Sprintf("Error reading request body: %s", err))
+		return
+	}
+
 	encodedString := encode85(buffer.Bytes())
 
 	fcmMessage := &messaging.Message{
