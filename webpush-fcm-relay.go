@@ -17,9 +17,9 @@ import (
 	uuid "github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
 
-	httptrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/net/http"
-	dd_logrus "gopkg.in/DataDog/dd-trace-go.v1/contrib/sirupsen/logrus"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	httptrace "github.com/DataDog/dd-trace-go/contrib/net/http/v2"
+	dd_logrus "github.com/DataDog/dd-trace-go/contrib/sirupsen/logrus/v2"
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 )
 
 type Message struct {
