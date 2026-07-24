@@ -40,7 +40,13 @@ var (
 )
 
 func main() {
-	tracer.Start()
+	var err error
+
+	err = tracer.Start()
+	if err != nil {
+		log.Fatal(fmt.Sprintf("Error starting tracer: %s", err))
+		return
+	}
 	defer tracer.Stop()
 
 	mux := httptrace.NewServeMux()
@@ -57,7 +63,6 @@ func main() {
 		log.Fatal("Firebase server key not provided")
 	}
 
-	var err error
 	ctx = context.Background()
 	client, err = fcm.NewClient(ctx, fcm.WithCredentialsFile(configCredentialsFilePath))
 	if err != nil {
