@@ -35,7 +35,7 @@ var (
 	configCredentialsFilePath string
 	configMaxQueueSize        int
 	configMaxWorkers          int
-	messageChan               chan Message
+	messageChan               chan *Message
 	ctx                       context.Context
 )
 
@@ -65,7 +65,7 @@ func main() {
 	}
 
 	// create workers
-	messageChan = make(chan Message, configMaxQueueSize)
+	messageChan = make(chan *Message, configMaxQueueSize)
 	for i := 1; i <= configMaxWorkers; i++ {
 		go worker(i)
 	}
@@ -186,14 +186,12 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 		fcmMessage.Android.Priority = "high"
 	}
 
-	var message = Message{
+	messageChan <- &Message{
 		unsubscribeUrl: request.Header.Get("Unsubscribe-URL"),
 		fcmMessage:     fcmMessage,
 		requestLog:     requestLog,
 		ctx:            sctx,
 	}
-
-	messageChan <- message
 
 	writer.WriteHeader(201)
 
@@ -205,12 +203,12 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 	}).Info("Queue success")
 }
 
-func unsubscribe(msg Message, httpClient *http.Client, sctx context.Context, requestLog *log.Entry) bool {
-	unsubscribeReq, reqErr := http.NewRequest("DELETE", msg.unsubscribeUrl, nil)
+func unsubscribe(unsubscribeUrl string, httpClient *http.Client, sctx context.Context, requestLog *log.Entry) bool {
+	unsubscribeReq, reqErr := http.NewRequest("DELETE", unsubscribeUrl, nil)
 	if reqErr != nil {
 		requestLog.WithFields(log.Fields{
 			"error":           reqErr.Error(),
-			"unsubscribe-url": msg.unsubscribeUrl,
+			"unsubscribe-url": unsubscribeUrl,
 		}).Error("Failed to create HTTP request for unsubscribe")
 
 		return false
@@ -220,7 +218,7 @@ func unsubscribe(msg Message, httpClient *http.Client, sctx context.Context, req
 	if respErr != nil {
 		requestLog.WithFields(log.Fields{
 			"error":           respErr.Error(),
-			"unsubscribe-url": msg.unsubscribeUrl,
+			"unsubscribe-url": unsubscribeUrl,
 		}).Error("Failed to send unsubscribe request")
 		return false
 	}
@@ -230,7 +228,7 @@ func unsubscribe(msg Message, httpClient *http.Client, sctx context.Context, req
 	} else {
 		requestLog.WithFields(log.Fields{
 			"status-code":     unsubscribeResp.StatusCode,
-			"unsubscribe-url": msg.unsubscribeUrl,
+			"unsubscribe-url": unsubscribeUrl,
 		}).Error(fmt.Sprintf("Failed to unsubscribe for notification (%v)", unsubscribeResp.StatusCode))
 
 		return false
@@ -255,7 +253,7 @@ func worker(wid int) {
 					unsubscribed := false
 
 					if msg.unsubscribeUrl != "" && resp.Error.Error() == "NotRegistered" {
-						unsubscribed = unsubscribe(msg, httpClient, msg.ctx, requestLog)
+						unsubscribed = unsubscribe(msg.unsubscribeUrl, httpClient, msg.ctx, requestLog)
 					}
 
 					requestLog.
