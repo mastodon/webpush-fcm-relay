@@ -72,6 +72,7 @@ func main() {
 	}
 
 	mux.HandleFunc("POST /relay-to/fcm/{token}/{extra...}", handleFcmNotification)
+	mux.HandleFunc("GET /relay-to/_health", handleHealthCheck)
 
 	log.Info(fmt.Sprintf("Starting on %s...", configListenAddr))
 	log.Fatal(http.ListenAndServe(configListenAddr, mux))
@@ -79,6 +80,14 @@ func main() {
 
 func nextRequestID() string {
 	return uuid.NewV4().String()
+}
+
+func handleHealthCheck(writer http.ResponseWriter, request *http.Request) {
+	requestLog := log.WithContext(request.Context())
+
+	writer.WriteHeader(200)
+	fmt.Println(writer, "OK")
+	requestLog.Info("Health check OK")
 }
 
 func handleFcmNotification(writer http.ResponseWriter, request *http.Request) {
