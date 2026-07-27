@@ -60,7 +60,12 @@ func main() {
 	}
 
 	ctx = context.Background()
-	client, err = fcm.NewClient(ctx, fcm.WithCredentialsFile(configCredentialsFilePath))
+	client, err = fcm.NewClient(
+		ctx,
+		fcm.WithCredentialsFile(configCredentialsFilePath),
+		fcm.WithHTTPClient(httpClient),
+	)
+
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Error setting up FCM client: %s", err))
 	}
@@ -72,7 +77,7 @@ func main() {
 	}
 
 	mux.HandleFunc("POST /relay-to/fcm/{token}/{extra...}", handleFcmNotification)
-	mux.HandleFunc("GET /relay-to/_health", handleHealthCheck)
+	mux.HandleFunc("GET /relay-to/fcm/_health", handleHealthCheck)
 
 	log.Info(fmt.Sprintf("Starting on %s...", configListenAddr))
 	log.Fatal(http.ListenAndServe(configListenAddr, mux))
