@@ -14,7 +14,7 @@ import (
 
 	"firebase.google.com/go/v4/messaging"
 	"github.com/appleboy/go-fcm"
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
 	httptrace "github.com/DataDog/dd-trace-go/contrib/net/http/v2"
@@ -78,10 +78,6 @@ func main() {
 	log.Fatal(http.ListenAndServe(configListenAddr, mux))
 }
 
-func nextRequestID() string {
-	return uuid.NewV4().String()
-}
-
 func handleHealthCheck(writer http.ResponseWriter, request *http.Request) {
 	requestLog := log.WithContext(request.Context())
 
@@ -92,7 +88,7 @@ func handleHealthCheck(writer http.ResponseWriter, request *http.Request) {
 
 func handleFcmNotification(writer http.ResponseWriter, request *http.Request) {
 	ctx := request.Context()
-	requestID := nextRequestID()
+	requestID := uuid.New().String()
 
 	span, _ := tracer.SpanFromContext(ctx)
 	span.SetTag("request-id", requestID)
