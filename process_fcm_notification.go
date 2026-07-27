@@ -7,6 +7,8 @@ import (
 
 	"firebase.google.com/go/v4/messaging"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 )
 
 type Message struct {
@@ -20,34 +22,52 @@ func fcmNotificationsWorker(wid int) {
 	var httpClient = &http.Client{}
 
 	log.Info(fmt.Sprintf("Starting worker %d", wid))
+
 	for msg := range messageChan {
-		requestLog := msg.requestLog.WithFields(log.Fields{"worker-id": wid})
-		resp, err := client.Send(msg.ctx, msg.fcmMessage)
-		if err != nil {
-			requestLog.Error(fmt.Sprintf("error sending fcm message: %s", err.Error()))
-		}
-
-		if resp.FailureCount > 0 {
-			for _, resp := range resp.Responses {
-				if !resp.Success {
-					unsubscribed := false
-
-					if msg.unsubscribeUrl != "" && resp.Error.Error() == "NotRegistered" {
-						unsubscribed = unsubscribe(msg.ctx, msg.unsubscribeUrl, httpClient, requestLog)
-					}
-
-					requestLog.
-						WithFields(log.Fields{"message-id": resp.MessageID, "unsubscribed": unsubscribed}).
-						Warn(fmt.Sprintf("message rejected: %s", resp.Error))
-				}
-			}
-		}
+		processFcmNotificationMessage(msg, httpClient, wid)
 	}
+
 	log.Info(fmt.Sprintf("Worker %d stopped", wid))
 }
 
+func processFcmNotificationMessage(msg *Message, httpClient *http.Client, workerId int) {
+	span, sctx := tracer.StartSpanFromContext(msg.ctx,
+		"processMessage",
+		tracer.Tag("workerId", workerId),
+		tracer.Tag("deviceToken", msg.fcmMessage.Token),
+	)
+	defer span.Finish()
+
+	requestLog := msg.requestLog.WithFields(log.Fields{"worker-id": workerId})
+	resp, err := client.Send(msg.ctx, msg.fcmMessage)
+	if err != nil {
+		requestLog.Error(fmt.Sprintf("error sending fcm message: %s", err.Error()))
+	}
+
+	if resp.FailureCount > 0 {
+		for _, resp := range resp.Responses {
+			if !resp.Success {
+				unsubscribed := false
+
+				if msg.unsubscribeUrl != "" && resp.Error.Error() == "NotRegistered" {
+					unsubscribed = unsubscribe(sctx, msg.unsubscribeUrl, httpClient, requestLog)
+				}
+
+				requestLog.
+					WithFields(log.Fields{"message-id": resp.MessageID, "unsubscribed": unsubscribed}).
+					Warn(fmt.Sprintf("message rejected: %s", resp.Error))
+			}
+		}
+	}
+}
+
 func unsubscribe(ctx context.Context, unsubscribeUrl string, httpClient *http.Client, requestLog *log.Entry) bool {
-	unsubscribeReq, reqErr := http.NewRequest("DELETE", unsubscribeUrl, nil)
+	span, sctx := tracer.StartSpanFromContext(ctx, "unsubscribe",
+		tracer.Tag("unsubscribeUrl", unsubscribeUrl),
+	)
+	defer span.Finish()
+
+	unsubscribeReq, reqErr := http.NewRequestWithContext(sctx, "DELETE", unsubscribeUrl, nil)
 	if reqErr != nil {
 		requestLog.WithFields(log.Fields{
 			"error":           reqErr.Error(),
