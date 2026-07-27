@@ -22,13 +22,6 @@ import (
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 )
 
-type Message struct {
-	unsubscribeUrl string
-	fcmMessage     *messaging.Message
-	requestLog     *log.Entry // For logging with datadog context
-	ctx            context.Context
-}
-
 var (
 	client                    *fcm.Client
 	configListenAddr          string
@@ -72,7 +65,7 @@ func main() {
 	// create workers
 	messageChan = make(chan *Message, configMaxQueueSize)
 	for i := 1; i <= configMaxWorkers; i++ {
-		go worker(i)
+		go fcmNotificationsWorker(i)
 	}
 
 	mux.HandleFunc("/relay-to/", handler)
@@ -206,69 +199,6 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 		"ttl":          fcmMessage.Android.TTL,
 		"collapse-key": fcmMessage.Android.CollapseKey,
 	}).Info("Queue success")
-}
-
-func unsubscribe(unsubscribeUrl string, httpClient *http.Client, sctx context.Context, requestLog *log.Entry) bool {
-	unsubscribeReq, reqErr := http.NewRequest("DELETE", unsubscribeUrl, nil)
-	if reqErr != nil {
-		requestLog.WithFields(log.Fields{
-			"error":           reqErr.Error(),
-			"unsubscribe-url": unsubscribeUrl,
-		}).Error("Failed to create HTTP request for unsubscribe")
-
-		return false
-	}
-
-	unsubscribeResp, respErr := httpClient.Do(unsubscribeReq)
-	if respErr != nil {
-		requestLog.WithFields(log.Fields{
-			"error":           respErr.Error(),
-			"unsubscribe-url": unsubscribeUrl,
-		}).Error("Failed to send unsubscribe request")
-		return false
-	}
-
-	if unsubscribeResp.StatusCode == 200 {
-		return true
-	} else {
-		requestLog.WithFields(log.Fields{
-			"status-code":     unsubscribeResp.StatusCode,
-			"unsubscribe-url": unsubscribeUrl,
-		}).Error(fmt.Sprintf("Failed to unsubscribe for notification (%v)", unsubscribeResp.StatusCode))
-
-		return false
-	}
-
-}
-
-func worker(wid int) {
-	var httpClient = &http.Client{}
-
-	log.Info(fmt.Sprintf("Starting worker %d", wid))
-	for msg := range messageChan {
-		requestLog := msg.requestLog.WithFields(log.Fields{"worker-id": wid})
-		resp, err := client.Send(ctx, msg.fcmMessage)
-		if err != nil {
-			requestLog.Error(fmt.Sprintf("error sending fcm message: %s", err.Error()))
-		}
-
-		if resp.FailureCount > 0 {
-			for _, resp := range resp.Responses {
-				if !resp.Success {
-					unsubscribed := false
-
-					if msg.unsubscribeUrl != "" && resp.Error.Error() == "NotRegistered" {
-						unsubscribed = unsubscribe(msg.unsubscribeUrl, httpClient, msg.ctx, requestLog)
-					}
-
-					requestLog.
-						WithFields(log.Fields{"message-id": resp.MessageID, "unsubscribed": unsubscribed}).
-						Warn(fmt.Sprintf("message rejected: %s", resp.Error))
-				}
-			}
-		}
-	}
-	log.Info(fmt.Sprintf("Worker %d stopped", wid))
 }
 
 func encodedValue(header http.Header, name, key string) (string, error) {
