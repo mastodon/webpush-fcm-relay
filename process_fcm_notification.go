@@ -37,7 +37,7 @@ func processFcmNotificationMessage(msg *Message, httpClient *http.Client, worker
 	defer span.Finish()
 
 	requestLog := msg.requestLog.WithFields(log.Fields{"worker-id": workerId})
-	resp, err := client.Send(msg.ctx, msg.fcmMessage)
+	resp, err := client.Send(sctx, msg.fcmMessage)
 	if err != nil {
 		requestLog.Error(fmt.Sprintf("error sending fcm message: %s", err.Error()))
 	}
