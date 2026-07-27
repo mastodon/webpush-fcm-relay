@@ -71,7 +71,7 @@ func main() {
 		go fcmNotificationsWorker(i, httpClient)
 	}
 
-	mux.HandleFunc("/relay-to/", handler)
+	mux.HandleFunc("POST /relay-to/fcm/{token}/{extra...}", handleFcmNotification)
 
 	log.Info(fmt.Sprintf("Starting on %s...", configListenAddr))
 	log.Fatal(http.ListenAndServe(configListenAddr, mux))
@@ -81,35 +81,19 @@ func nextRequestID() string {
 	return uuid.NewV4().String()
 }
 
-func handler(writer http.ResponseWriter, request *http.Request) {
-	span, sctx := tracer.StartSpanFromContext(ctx, "web.request", tracer.ResourceName(request.RequestURI))
-	defer span.Finish()
-
+func handleFcmNotification(writer http.ResponseWriter, request *http.Request) {
+	ctx := request.Context()
 	requestID := nextRequestID()
-	requestLog := log.WithFields(log.Fields{"request-id": requestID}).WithContext(sctx)
+
+	span, _ := tracer.SpanFromContext(ctx)
+	span.SetTag("request-id", requestID)
+
+	requestLog := log.WithFields(log.Fields{"request-id": requestID}).WithContext(ctx)
 
 	writer.Header().Set("X-Request-Id", requestID)
 
-	components := strings.Split(request.URL.Path, "/")
-
-	if len(components) < 4 {
-		http.Error(writer, "Invalid URL path", http.StatusBadRequest)
-		requestLog.Error(fmt.Sprintf("Invalid URL path: %s", request.URL.Path))
-		return
-	}
-
-	if components[2] != "fcm" {
-		http.Error(writer, "Invalid target environment", http.StatusBadRequest)
-		requestLog.Error(fmt.Sprintf("Invalid target environment: %s", components[2]))
-		return
-	}
-
-	deviceToken := components[3]
-	if deviceToken == "" {
-		http.Error(writer, "Missing device token", http.StatusBadRequest)
-		requestLog.Error("Missing device token")
-		return
-	}
+	deviceToken := request.PathValue("token")
+	extra := request.PathValue("extra")
 
 	buffer := new(bytes.Buffer)
 	_, err := buffer.ReadFrom(request.Body)
@@ -140,8 +124,8 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 		},
 	}
 
-	if len(components) > 4 {
-		fcmMessage.Data["x"] = strings.Join(components[4:], "/")
+	if extra != "" {
+		fcmMessage.Data["x"] = extra
 	}
 
 	switch request.Header.Get("Content-Encoding") {
@@ -191,7 +175,7 @@ func handler(writer http.ResponseWriter, request *http.Request) {
 		unsubscribeUrl: request.Header.Get("Unsubscribe-URL"),
 		fcmMessage:     fcmMessage,
 		requestLog:     requestLog,
-		ctx:            sctx,
+		ctx:            context.WithoutCancel(ctx),
 	}
 
 	writer.WriteHeader(201)
