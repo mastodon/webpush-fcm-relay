@@ -8,7 +8,7 @@ require (
 	github.com/DataDog/dd-trace-go/contrib/sirupsen/logrus/v2 v2.9.1
 	github.com/DataDog/dd-trace-go/v2 v2.9.1
 	github.com/appleboy/go-fcm v1.2.11
-	github.com/satori/go.uuid v1.2.0
+	github.com/google/uuid v1.6.0
 	github.com/sirupsen/logrus v1.9.4
 )
 
@@ -59,7 +59,6 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.19 // indirect
 	github.com/googleapis/gax-go/v2 v2.23.0 // indirect
 	github.com/hashicorp/go-version v1.9.0 // indirect
