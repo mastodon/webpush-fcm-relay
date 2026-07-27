@@ -18,9 +18,7 @@ type Message struct {
 	ctx            context.Context
 }
 
-func fcmNotificationsWorker(wid int) {
-	var httpClient = &http.Client{}
-
+func fcmNotificationsWorker(wid int, httpClient *http.Client) {
 	log.Info(fmt.Sprintf("Starting worker %d", wid))
 
 	for msg := range messageChan {

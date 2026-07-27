@@ -42,6 +42,9 @@ func main() {
 	}
 	defer tracer.Stop()
 
+	// Instrument the default HTTP client with Datadog tracing
+	httpClient := httptrace.WrapClient(http.DefaultClient)
+
 	mux := httptrace.NewServeMux()
 
 	log.AddHook(&dd_logrus.DDContextLogHook{})
@@ -65,7 +68,7 @@ func main() {
 	// create workers
 	messageChan = make(chan *Message, configMaxQueueSize)
 	for i := 1; i <= configMaxWorkers; i++ {
-		go fcmNotificationsWorker(i)
+		go fcmNotificationsWorker(i, httpClient)
 	}
 
 	mux.HandleFunc("/relay-to/", handler)
