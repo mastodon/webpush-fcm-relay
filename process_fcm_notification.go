@@ -55,7 +55,6 @@ func processFcmNotificationMessage(msg *Message, httpClient *http.Client, worker
 					WithFields(log.Fields{"message-id": resp.MessageID, "unsubscribed": unsubscribed}).
 					Warn(fmt.Sprintf("message rejected: %s", resp.Error))
 
-				span.SetTag()
 				span.SetTag("unsubscribed", unsubscribed)
 				span.SetTag("fcm.error", resp.Error.Error())
 			}
