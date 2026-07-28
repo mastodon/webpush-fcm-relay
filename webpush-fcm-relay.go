@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,18 @@ var (
 	messageChan               chan *Message
 	ctx                       context.Context
 )
+
+var envVersion = os.Getenv("DD_VERSION")
+
+func userAgent() string {
+	var version = envVersion
+
+	if version == "" {
+		version = "dev"
+	}
+
+	return "mastodon-webpush-fcm-relay/" + version + " (https://github.com/mastodon/webpush-fcm-relay)"
+}
 
 func main() {
 	var err error
